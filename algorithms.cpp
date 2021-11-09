@@ -5,7 +5,8 @@
 #include <QFile>
 #include <QDebug>
 
-static const char s[] = {
+static const char s[] = //таблица s блоков https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Узлы_замены,_определённые_документом_RFC_4357
+{
     '\x04', '\x0a', '\x09', '\x02', '\x0d', '\x08', '\x00', '\x0e', '\x06', '\x0b', '\x01', '\x0c', '\x07', '\x0f', '\x05', '\x03',
     '\x0e',	'\x0b',	'\x04',	'\x0c',	'\x06',	'\x0d',	'\x0f',	'\x0a',	'\x02',	'\x03',	'\x08',	'\x01',	'\x00',	'\x07',	'\x05',	'\x09',
     '\x05',	'\x08',	'\x01',	'\x0d',	'\x0a',	'\x03',	'\x04',	'\x02',	'\x0e',	'\x0f',	'\x0c',	'\x07',	'\x06',	'\x00',	'\x09',	'\x0b',
@@ -16,14 +17,15 @@ static const char s[] = {
     '\x01',	'\x0f',	'\x0d',	'\x00',	'\x05',	'\x07',	'\x0a',	'\x04',	'\x09',	'\x02',	'\x03',	'\x0e',	'\x06',	'\x0b',	'\x08',	'\x0c'
 };
 
-static const char c3[] = {
+static const char c3[] =    //третья константа для вычисления ключей https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Генерация_ключей
+{
     '\xff', '\x00', '\xff', '\xff', '\x00', '\x00', '\x00', '\xff',
     '\xff', '\x00', '\x00', '\xff', '\x00', '\xff', '\xff', '\x00',
     '\x00', '\xff', '\x00', '\xff', '\x00', '\xff', '\x00', '\xff',
     '\xff', '\x00', '\xff', '\x00', '\xff', '\x00', '\xff', '\x00'
 };
 
-static QByteArray S (s, 16 * 8);
+static const QByteArray S (s, 16 * 8);
 
 Algorithms::Algorithms(const QString& in, const QString& out)
     : inFile(in), outFile(out)
@@ -36,21 +38,21 @@ bool Algorithms::process()
     if (!in.open(QIODevice::ReadOnly))
         return false;
 
-    QByteArray H (32, '\x00');
-    QByteArray L (32, '\x00');
+    QByteArray H (32, '\x00');  //aka H1 с одними нулями https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Узлы_замены_(S-блоки)
+    QByteArray L (32, '\x00');  //шаг 1 в алгоритме https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Описание
     QByteArray Sum (32, '\x00');
 
-    while (!in.atEnd())
+    while (!in.atEnd()) //читаем файл до конца (по сути шаг 2 в алгоритме)
     {
-        QByteArray chunk = in.read(32);
+        QByteArray chunk = in.read(32); //блоками по 32 байта (256 бит)
 
-        if (chunk.size() < 32)
-            chunk.append(32 - chunk.size(), '\x00');
+        if (chunk.size() < 32)  //если последний блок меньше 32
+            chunk.append(32 - chunk.size(), '\x00');    //до дописываем ему в конец нулей до размера 32
 
-        H = f(H, chunk);
+        H = f(H, chunk);    //от блока и предыдущего H вычисляем хэш
 
         int tmp = 0;
-        for (auto i = 0; i < chunk.size(); ++i)
+        for (auto i = 0; i < chunk.size(); ++i) //вычисляем контрольную сумму от нового блока и прибавление ее к пред контр сумму
         {
             tmp >>= 8;
             tmp += chunk[i] + Sum[i];
@@ -62,13 +64,13 @@ bool Algorithms::process()
     auto file_size = in.size();
     in.close();
 
-    for (auto i = 0; i < L.size(); ++i)
+    for (auto i = 0; i < L.size(); ++i) //вычисляем L как 2 и 3 шаг объединены здесь в контексте L (т к зависит ток от размера входных данных)
     {
         L[i] = file_size & 0xFF;
         file_size >>= 8;
     }
 
-    H = f(f(H, L), Sum);
+    H = f(f(H, L), Sum);    //вычисление Hn+2 и финального h (результат работы хэш функции)
 
     QFile out (outFile);
 
@@ -90,18 +92,18 @@ QByteArray Algorithms::f(const QByteArray &Hin, const QByteArray &m)
     return mixedUp;
 }
 
-QVector<QByteArray> Algorithms::keys(const QByteArray &Hin, const QByteArray &m)
+QVector<QByteArray> Algorithms::keys(const QByteArray &Hin, const QByteArray &m)    //вычисление ключей https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Генерация_ключей
 {
     QVector<QByteArray> C_s { QByteArray(32, '\x00'), QByteArray(c3, 32), QByteArray(32, '\x00')};
     QVector<QByteArray> K_s(4);
 
-    QByteArray U = Hin;
+    QByteArray U = Hin; //первый шаг алгоритма
     QByteArray V = m;
     QByteArray W = x0r(U, V);
 
     K_s[0] = P(W);
 
-    for (auto i = 1; i < 4; ++i)
+    for (auto i = 1; i < 4; ++i)    //второй
     {
         U = x0r(A(U), C_s[i - 1]);
         V = A(A(V));
@@ -113,19 +115,19 @@ QVector<QByteArray> Algorithms::keys(const QByteArray &Hin, const QByteArray &m)
     return K_s;
 }
 
-QByteArray Algorithms::encryption(QByteArray Hin, const QVector<QByteArray> &Key)
+QByteArray Algorithms::encryption(QByteArray Hin, const QVector<QByteArray> &Key)   //вычисление блока S https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Шифрующее_преобразование
 {
-    QVector<QByteArray> h_s(4);
+    QVector<QByteArray> h_s(4); //такая херня в начале некоторых функций - нарезка исхожного массива на несколько подмассивов указанного размера
     for (auto i = 0; i < 4; ++i)
     {
-        h_s[i] = Hin.right(8);
+        h_s[i] = Hin.right(8);  // <-- вот этот размер в байтах
         Hin.chop(8);
     }
 
     QByteArray result;
     result.resize(32);
 
-    for (auto i = 3; i >= 0; --i)
+    for (auto i = 3; i >= 0; --i)   //вычисление s блоков и слепка их в один массив
     {
         const auto tmp = E(h_s[i], Key[3 - i]);
 
@@ -138,7 +140,7 @@ QByteArray Algorithms::encryption(QByteArray Hin, const QVector<QByteArray> &Key
     return result;
 }
 
-QByteArray Algorithms::mixingUp(const QByteArray &Hin, const QByteArray& m, const QByteArray& S)
+QByteArray Algorithms::mixingUp(const QByteArray &Hin, const QByteArray& m, const QByteArray& S)    //перемешивание https://ru.wikipedia.org/wiki/ГОСТ_Р_34.11-94#Перемешивающее_преобразование
 {
     return psi(x0r(Hin, psi(x0r(m, psi(S, 12)), 1)), 61);
 }
@@ -163,10 +165,10 @@ QByteArray Algorithms::psi_impl(QByteArray block)
         block.chop(2);
     }
 
-    QByteArray result = x0r(x0r(x0r(x0r(x0r(y_s[0], y_s[1]), y_s[2]), y_s[3]), y_s[12]), y_s[15]);
+    QByteArray result = x0r(x0r(x0r(x0r(x0r(y_s[0], y_s[1]), y_s[2]), y_s[3]), y_s[12]), y_s[15]);  //xor указанных
     result.resize(32);
 
-    for (auto i = 1; i < 16; ++i)
+    for (auto i = 1; i < 16; ++i)   //конкатенация с остальными
     {
         result[i * 2] = y_s[i][0];
         result[i * 2 + 1] = y_s[i][1];
@@ -175,7 +177,7 @@ QByteArray Algorithms::psi_impl(QByteArray block)
     return result;
 }
 
-QByteArray Algorithms::A(QByteArray block)
+QByteArray Algorithms::A(QByteArray block)  //А из генерации ключей
 {
     QVector<QByteArray> y_s(4);
     for (auto i = 3; i >= 0; --i)
@@ -194,7 +196,7 @@ QByteArray Algorithms::A(QByteArray block)
     return result;
 }
 
-QByteArray Algorithms::P(QByteArray block)
+QByteArray Algorithms::P(QByteArray block)  //P из генерации ключей
 {
     QVector<QByteArray> y_s(32);
     for (auto i = 31; i >= 0; --i)
@@ -212,7 +214,7 @@ QByteArray Algorithms::P(QByteArray block)
     return res;
 }
 
-int Algorithms::fi(int arg)
+int Algorithms::fi(int arg) //фи для P функции
 {
     int k = ((arg - 1) >> 2) + 1;
 
@@ -221,8 +223,8 @@ int Algorithms::fi(int arg)
     return (i << 3) + k;
 }
 
-QByteArray Algorithms::E(QByteArray h, QByteArray K)
-{
+QByteArray Algorithms::E(QByteArray h, QByteArray K) //Е для вычисления s блоков (шифрования) | эта функция и E_f не имеют прямого отношения к хэшу и вообще используются много где
+{   //сам плохо представляю, что тут происходит
     QByteArray A, B;
     A.resize(4);
     B.resize(4);

@@ -17,7 +17,7 @@ QTextStream& cout()
 void output_help()
 {
     cout() << "incorrent use of application\n";
-    cout() << "usage: " << qAppName() << " [-k key] [-o out_file] -i in_file\n";
+    cout() << "usage: " << qAppName() << " [-o out_file] -i in_file\n";
 }
 
 int main(int argc, char* argv[])
